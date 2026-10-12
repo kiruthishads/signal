@@ -5,16 +5,6 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { motion } from "framer-motion";
 
-/**
- * Transient loading screen shown after OAuth code exchange.
- *
- * The primary /v1/auth/sync call (with provider_token) is made server-side
- * in /auth/callback/route.ts, where the raw exchangeCodeForSession response
- * still contains provider_token before @supabase/ssr drops it from cookies.
- *
- * This page fires a secondary sync as a no-op idempotency call and then
- * redirects to the dashboard.
- */
 export default function SyncingPage() {
   const router = useRouter();
   const called = useRef(false);
@@ -26,29 +16,44 @@ export default function SyncingPage() {
     (async () => {
       try {
         const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
         if (!session) {
           router.replace("/login?error=no_session");
           return;
         }
 
-        const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/v1";
+        const apiBase = `${
+          (
+            process.env.NEXT_PUBLIC_API_URL ??
+            "http://localhost:8000"
+          ).replace(/\/+$/, "")
+        }/v1`;
 
-        await fetch(`${apiBase}/auth/sync`, {
+        const response = await fetch(`${apiBase}/auth/sync`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            // provider_token is the GitHub OAuth token — available only
-            // in the initial session before the first Supabase token refresh
             provider_token: session.provider_token ?? null,
           }),
+          cache: "no-store",
         });
-      } catch {
-        // Non-fatal — user creation and token storage happen lazily
+
+        if (!response.ok) {
+          console.error(
+            "[auth/syncing] sync failed:",
+            response.status,
+            await response.text()
+          );
+        }
+      } catch (error) {
+        console.error("[auth/syncing] error:", error);
       } finally {
         router.replace("/dashboard");
       }
@@ -60,9 +65,15 @@ export default function SyncingPage() {
       <motion.div
         className="w-8 h-8 rounded-full border-2 border-signal border-t-transparent"
         animate={{ rotate: 360 }}
-        transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}
+        transition={{
+          repeat: Infinity,
+          duration: 0.8,
+          ease: "linear",
+        }}
       />
-      <p className="text-sm text-muted-foreground">Setting up your profile…</p>
+      <p className="text-sm text-muted-foreground">
+        Setting up your profile…
+      </p>
     </div>
   );
 }
