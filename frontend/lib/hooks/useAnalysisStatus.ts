@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from "@/lib/api-base";
 import { getAccessToken } from "@/lib/auth";
 import type { AnalysisProgressEvent } from "@/types/signal";
 
@@ -47,8 +48,6 @@ export function useAnalysisStatus(jobId: string | null): UseAnalysisStatusReturn
     terminalRef.current = false;
     retryCount.current  = 0;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/v1";
-
     async function openStream() {
       if (terminalRef.current) return;
 
@@ -59,7 +58,7 @@ export function useAnalysisStatus(jobId: string | null): UseAnalysisStatusReturn
       try {
         const token = await getAccessToken();
 
-        const res = await fetch(`${apiBase}/analysis/status/${jobId}`, {
+        const res = await fetch(`${API_BASE}/analysis/status/${jobId}`, {
           headers: {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
             Accept: "text/event-stream",

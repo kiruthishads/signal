@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { API_BASE } from "@/lib/api-base";
 import { motion } from "framer-motion";
 
 export default function SyncingPage() {
@@ -26,14 +27,7 @@ export default function SyncingPage() {
           return;
         }
 
-        const apiBase = `${
-          (
-            process.env.NEXT_PUBLIC_API_URL ??
-            "http://localhost:8000"
-          ).replace(/\/+$/, "")
-        }/v1`;
-
-        const response = await fetch(`${apiBase}/auth/sync`, {
+        const response = await fetch(`${API_BASE}/auth/sync`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
@@ -46,10 +40,10 @@ export default function SyncingPage() {
         });
 
         if (!response.ok) {
+          // Status only: a 422 validation body can echo the request, which holds the GitHub token.
           console.error(
             "[auth/syncing] sync failed:",
-            response.status,
-            await response.text()
+            response.status
           );
         }
       } catch (error) {

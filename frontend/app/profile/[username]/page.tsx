@@ -3,16 +3,15 @@ import { notFound } from "next/navigation";
 import { PublicProfileShell } from "./PublicProfileShell";
 import type { PublicProfile } from "@/types/signal";
 import { asFiniteNumber } from "@/lib/utils";
+import { API_BASE } from "@/lib/api-base";
 
 interface Props {
   params: Promise<{ username: string }>;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/v1";
-
 async function fetchPublicProfile(username: string): Promise<PublicProfile | null> {
   try {
-    const res = await fetch(`${API_BASE}/profiles/${username}`, {
+    const res = await fetch(`${API_BASE}/profiles/${encodeURIComponent(username)}`, {
       next: { revalidate: 60 },
     });
     if (res.status === 404) return null;

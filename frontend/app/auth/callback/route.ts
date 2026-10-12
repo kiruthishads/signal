@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
+import { API_BASE } from "@/lib/api-base";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -61,15 +62,8 @@ export async function GET(request: NextRequest) {
   const session = exchangeData.session;
 
   if (session?.provider_token) {
-    const apiBase = `${
-      (
-        process.env.NEXT_PUBLIC_API_URL ??
-        "http://localhost:8000"
-      ).replace(/\/+$/, "")
-    }/v1`;
-
     try {
-      const response = await fetch(`${apiBase}/auth/sync`, {
+      const response = await fetch(`${API_BASE}/auth/sync`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -82,10 +76,10 @@ export async function GET(request: NextRequest) {
       });
 
       if (!response.ok) {
+        // Status only: a 422 validation body can echo the request, which holds the GitHub token.
         console.error(
           "[auth/callback] backend sync failed:",
-          response.status,
-          await response.text()
+          response.status
         );
       }
     } catch (err) {

@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api-base";
 import { getAccessToken } from "@/lib/auth";
 import { createClient } from "@/lib/supabase";
 import type {
@@ -24,11 +25,6 @@ export class RateLimitError extends Error {
     this.remaining = remaining;
   }
 }
-
-const API_BASE = `${
-  (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")
-    .replace(/\/+$/, "")
-}/v1`;
 
 async function request<T>(
   path: string,
