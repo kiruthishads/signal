@@ -1,4 +1,5 @@
 import { getAccessToken } from "@/lib/auth";
+import { createClient } from "@/lib/supabase";
 import type {
   CapabilityProfile,
   AnalysisJob,
@@ -11,7 +12,12 @@ import type {
 export class RateLimitError extends Error {
   retryAfter: number | null;
   remaining: number;
-  constructor(message: string, retryAfter: number | null = null, remaining = 0) {
+
+  constructor(
+    message: string,
+    retryAfter: number | null = null,
+    remaining = 0
+  ) {
     super(message);
     this.name = "RateLimitError";
     this.retryAfter = retryAfter;
@@ -19,16 +25,15 @@ export class RateLimitError extends Error {
   }
 }
 
-const API_BASE = `${(
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-).replace(/\/+$/, "")}/v1`;
+const API_BASE = `${
+  (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000")
+    .replace(/\/+$/, "")
+}/v1`;
 
-/**
- * Authenticated fetch wrapper.
- * Attaches Authorization: Bearer <supabase_access_token> to every request.
- * Throws an Error with the backend's `detail` message on non-2xx responses.
- */
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
   const token = await getAccessToken();
 
   const headers: Record<string, string> = {
@@ -44,42 +49,70 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     delete headers["Content-Type"];
   }
 
- const res = await fetch(`${API_BASE}/${path.replace(/^\/+/, "")}`, {
-    ...options,
-    headers,
-  });
+  const res = await fetch(
+    `${API_BASE}/${path.replace(/^\/+/, "")}`,
+    {
+      ...options,
+      headers,
+    }
+  );
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    const body = await res.json().catch(() => ({
+      detail: res.statusText,
+    }));
+
     if (res.status === 429) {
       const retryAfter = res.headers.get("Retry-After");
-      const remaining = parseInt(res.headers.get("X-RateLimit-Remaining") ?? "0", 10);
+      const remaining = parseInt(
+        res.headers.get("X-RateLimit-Remaining") ?? "0",
+        10
+      );
+
       throw new RateLimitError(
         body.detail ?? "Rate limit exceeded",
         retryAfter ? parseInt(retryAfter, 10) : null,
-        remaining,
+        remaining
       );
     }
+
     throw new Error(body.detail ?? `HTTP ${res.status}`);
   }
 
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204) {
+    return undefined as T;
+  }
 
   return res.json();
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// Authentication
 
-export const syncUser = () =>
-  request<{ id: string; github_username: string; full_name: string | null }>(
-    "/auth/sync",
-    { method: "POST" }
-  );
+export const syncUser = async () => {
+  const supabase = createClient();
 
-// ── Analysis ──────────────────────────────────────────────────────────────────
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  return request<{
+    id: string;
+    github_username: string;
+    full_name: string | null;
+  }>("/auth/sync", {
+    method: "POST",
+    body: JSON.stringify({
+      provider_token: session?.provider_token ?? null,
+    }),
+  });
+};
+
+// Analysis
 
 export const startAnalysis = () =>
-  request<AnalysisJob>("/analysis/start", { method: "POST" });
+  request<AnalysisJob>("/analysis/start", {
+    method: "POST",
+  });
 
 export const getAnalysisHistory = () =>
   request<AnalysisJob[]>("/analysis/history");
@@ -87,7 +120,7 @@ export const getAnalysisHistory = () =>
 export const getAnalysisQuota = () =>
   request<AnalysisQuota>("/analysis/quota");
 
-// ── Profiles ──────────────────────────────────────────────────────────────────
+// Profiles
 
 export const getMyProfile = () =>
   request<CapabilityProfile>("/profiles/me");
@@ -105,10 +138,14 @@ export const updateProfile = (data: {
   institution?: string;
   full_name?: string;
 }) =>
-  request<{ id: string; full_name: string | null; institution: string | null }>(
-    "/profiles/me",
-    { method: "PATCH", body: JSON.stringify(data) }
-  );
+  request<{
+    id: string;
+    full_name: string | null;
+    institution: string | null;
+  }>("/profiles/me", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 
 export const submitResumeSkills = (skills: string[]) =>
   request<{ stored: number }>("/profiles/me/resume-skills", {
@@ -116,11 +153,12 @@ export const submitResumeSkills = (skills: string[]) =>
     body: JSON.stringify({ skills }),
   });
 
-// ── Artifacts ─────────────────────────────────────────────────────────────────
+// Artifacts
 
 export const uploadArtifact = (file: File) => {
   const form = new FormData();
   form.append("file", file);
+
   return request<{ id: string }>("/artifacts/upload", {
     method: "POST",
     body: form,
