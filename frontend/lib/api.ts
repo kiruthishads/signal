@@ -19,8 +19,9 @@ export class RateLimitError extends Error {
   }
 }
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/v1";
+const API_BASE = `${(
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+).replace(/\/+$/, "")}/v1`;
 
 /**
  * Authenticated fetch wrapper.
@@ -43,7 +44,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     delete headers["Content-Type"];
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+ const res = await fetch(`${API_BASE}/${path.replace(/^\/+/, "")}`, {
     ...options,
     headers,
   });
