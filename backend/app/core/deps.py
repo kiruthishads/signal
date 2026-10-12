@@ -26,43 +26,39 @@ async def get_current_user(
     token_data: TokenPayload = verify_supabase_jwt(
         credentials.credentials
     )
-
     supabase_uuid = uuid.UUID(token_data.sub)
 
+    # First, look up by Supabase user UUID.
     result = await db.execute(
-    select(User).where(or_(*conditions))
-)
+        select(User).where(User.id == supabase_uuid)
+    )
     user = result.scalar_one_or_none()
 
     if user is None:
         if not token_data.github_username:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="GitHub username not found in token. Re-authenticate.",
+                detail="GitHub username missing. Sign in again.",
             )
 
-        # Check whether this GitHub account already exists.
+        # Look up an existing GitHub account before inserting.
         conditions = [
             User.github_username == token_data.github_username
         ]
 
         if token_data.github_id is not None:
-            conditions.append(
-                User.github_id == token_data.github_id
-            )
+            conditions.append(User.github_id == token_data.github_id)
 
         result = await db.execute(
-            select(User).where(
-                __import__("sqlalchemy").or_(*conditions)
-            )
+            select(User).where(or_(*conditions))
         )
         user = result.scalar_one_or_none()
 
         if user is None:
-            if not token_data.github_id:
+            if token_data.github_id is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="GitHub ID missing from token. Sign in again.",
+                    detail="GitHub ID missing. Sign in again.",
                 )
 
             user = User(
@@ -75,19 +71,19 @@ async def get_current_user(
             )
             db.add(user)
             await db.flush()
+
             log.info(
                 "user.created",
                 username=user.github_username,
                 id=str(user.id),
             )
         else:
-            # Preserve the existing database ID and related records.
             log.info(
                 "user.existing_account_found",
                 username=user.github_username,
             )
 
-    # Refresh profile details from the verified Supabase JWT.
+    # Refresh profile fields from the verified token.
     if token_data.github_avatar:
         user.github_avatar = token_data.github_avatar
 
