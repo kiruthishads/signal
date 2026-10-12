@@ -243,16 +243,12 @@ async def analysis_status(
             if row.progress_pct != last_pct or queue_position > 0:
                 last_pct = row.progress_pct
 
-                if row.status == "queued":
-                    label = f"Waiting — position {queue_position} in queue"
-                else:
-                    label = row.current_step or row.status
-
                 event = AnalysisProgressEvent(
                     step=row.status,
-                    label=label,
+                    label=_progress_label(row, queue_position),
                     progress=row.progress_pct,
                     queue_position=queue_position,
+                    retry_count=row.retry_count if row.status == "queued" else 0,
                     error=row.error_message if row.status == "failed" else None,
                 )
                 yield _sse(event)
@@ -298,6 +294,19 @@ async def analysis_history(
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+def _progress_label(row: AnalysisJob, queue_position: int) -> str:
+    """User-facing label; a queued job with retries is retrying, not newly waiting."""
+    if row.status == "queued" and row.retry_count:
+        max_retries = get_settings().max_job_retries
+        return (
+            "A temporary error interrupted your analysis — retrying automatically "
+            f"(attempt {row.retry_count} of {max_retries})"
+        )
+    if row.status == "queued":
+        return f"Waiting — position {queue_position} in queue"
+    return row.current_step or row.status
+
 
 def _sse(event: AnalysisProgressEvent) -> str:
     return f"data: {event.model_dump_json()}\n\n"

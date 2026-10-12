@@ -26,6 +26,7 @@ class AnalysisProgressEvent(BaseModel):
     label: str
     progress: int
     queue_position: int = 0   # 0 = not queued; N = position in queue (1-indexed)
+    retry_count: int = 0      # >0 when a queued job is waiting to retry after a failure
     detail: Optional[str] = None
     error: Optional[str] = None
 

@@ -63,7 +63,7 @@ export function AnalysisView() {
   const [rateLimitMsg,    setRateLimitMsg]    = useState<string>("");
   const [retryAfterSecs,  setRetryAfterSecs]  = useState<number | null>(null);
 
-  const { events, progress, isComplete, isFailed, latestLabel, currentStep } =
+  const { events, progress, isComplete, isFailed, latestLabel, currentStep, jobRetryCount } =
     useAnalysisStatus(jobId);
   const { history, isLoading: historyLoading, refresh } = useAnalysisHistory();
   const { quota, isLoading: quotaLoading, canStart, refresh: refreshQuota } = useAnalysisQuota();
@@ -126,6 +126,7 @@ export function AnalysisView() {
 
   // Derive queued / claimed states from SSE events
   const isQueued  = currentStep === "queued";
+  const isRetrying = isQueued && jobRetryCount > 0;
   const isClaimed = currentStep === "claimed";
 
   return (
@@ -229,7 +230,12 @@ export function AnalysisView() {
                 }
               </div>
               <div>
-                {isQueued ? (
+                {isRetrying ? (
+                  <>
+                    <p className="text-sm font-medium">Retrying your analysis</p>
+                    <p className="text-xs text-muted-foreground">A temporary error interrupted it — it will restart automatically</p>
+                  </>
+                ) : isQueued ? (
                   <>
                     <p className="text-sm font-medium">Your analysis is queued</p>
                     <p className="text-xs text-muted-foreground">Waiting for an analysis worker…</p>
@@ -259,7 +265,7 @@ export function AnalysisView() {
             </div>
 
             {/* Extended-wait notice */}
-            {isQueued && longWait && (
+            {isQueued && !isRetrying && longWait && (
               <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
                 <p className="text-xs text-amber-400">
                   Your analysis is taking longer than expected. Your job is safely queued and will continue processing.

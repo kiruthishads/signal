@@ -67,6 +67,7 @@ export interface AnalysisProgressEvent {
   label: string;
   progress: number;
   queue_position: number;
+  retry_count?: number;
   detail: string | null;
   error: string | null;
 }

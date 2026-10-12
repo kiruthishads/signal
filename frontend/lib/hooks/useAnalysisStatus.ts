@@ -22,6 +22,7 @@ export interface UseAnalysisStatusReturn {
   isFailed:     boolean;
   latestLabel:  string | null;
   currentStep:  string | null;
+  jobRetryCount: number;
 }
 
 const TERMINAL      = new Set(["complete", "failed", "cancelled"]);
@@ -153,7 +154,9 @@ export function useAnalysisStatus(jobId: string | null): UseAnalysisStatusReturn
     };
   }, [jobId]);
 
-  const latestLabel = events.length > 0 ? events[events.length - 1].label : null;
+  const latestEvent = events.length > 0 ? events[events.length - 1] : null;
+  const latestLabel = latestEvent?.label ?? null;
+  const jobRetryCount = latestEvent?.retry_count ?? 0;
 
-  return { events, progress, isComplete, isFailed, latestLabel, currentStep };
+  return { events, progress, isComplete, isFailed, latestLabel, currentStep, jobRetryCount };
 }
