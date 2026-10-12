@@ -38,11 +38,21 @@ jobs:
 
       # Run the worker for up to 250 s (covers the 240 s analysis timeout plus
       # startup overhead). The worker loops indefinitely, so the bash timeout
-      # provides the bounded exit. Exit code from timeout (124) is swallowed by
-      # || true so the step passes whether the worker drained the queue or was
-      # stopped by the clock.
+      # provides the bounded exit. Only timeout's own exit code (124) counts as
+      # success; any other non-zero code is a crash and fails the workflow.
       - name: Run worker
-        run: timeout 250 python -m app.worker.main || true
+        run: |
+          set +e
+          timeout 250 python -m app.worker.main
+          code=$?
+          if [ "$code" -eq 124 ]; then
+            echo "Worker stopped at the 250 s time limit (expected)."
+            exit 0
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=Analysis worker crashed::python -m app.worker.main exited with code $code"
+          fi
+          exit "$code"
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

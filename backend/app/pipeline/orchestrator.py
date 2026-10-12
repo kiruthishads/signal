@@ -16,11 +16,14 @@ Retry model:
   Retryable exceptions (Gemini 429, network timeouts, asyncio.TimeoutError)
   are retried up to settings.max_job_retries times with exponential backoff.
   Non-retryable exceptions (bad input, auth failures) fail immediately.
+  Quota exhaustion that backoff cannot fix (limit 0, per-day quota, or a
+  provider retry delay beyond our retry window) also fails immediately.
   After max retries the job is marked failed.
 """
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 
@@ -69,6 +72,43 @@ def _is_retryable(exc: Exception) -> bool:
     )
 
 
+# A provider-requested wait longer than the whole retry schedule (30+60+120 s)
+# cannot be satisfied by backoff, so retrying only delays a certain failure.
+_MAX_RETRY_WINDOW_S = 300
+
+_RETRY_DELAY_RE = re.compile(r"retrydelay['\"]?\s*:\s*['\"]?(\d+(?:\.\d+)?)s")
+_ZERO_LIMIT_RE = re.compile(r"limit:\s*0\b")
+_QUOTA_MODEL_RE = re.compile(r"model:\s*([\w.\-]+)")
+
+QUOTA_EXHAUSTED_MESSAGE = (
+    "AI provider quota exhausted{model}. This is a server configuration issue, "
+    "not a problem with your account — an administrator must switch to an "
+    "available Gemini model or enable billing. Please try again later."
+)
+
+
+def _is_quota_exhausted(exc: Exception) -> bool:
+    """
+    True for Gemini 429s that ordinary backoff cannot fix: a quota limit of 0
+    (model not available on this tier), an exceeded per-day quota, or a
+    provider retry delay longer than our retry window.
+    """
+    msg = str(exc).lower()
+    if "429" not in msg and "resource_exhausted" not in msg:
+        return False
+    if _ZERO_LIMIT_RE.search(msg):
+        return True
+    if "perday" in msg:
+        return True
+    delay = _RETRY_DELAY_RE.search(msg)
+    return delay is not None and float(delay.group(1)) > _MAX_RETRY_WINDOW_S
+
+
+def _quota_exhausted_message(exc: Exception) -> str:
+    model = _QUOTA_MODEL_RE.search(str(exc))
+    return QUOTA_EXHAUSTED_MESSAGE.format(model=f" for model {model.group(1)}" if model else "")
+
+
 def _backoff_seconds(retry_count: int) -> int:
     """Exponential backoff: 30s, 60s, 120s for attempts 0, 1, 2."""
     return 30 * (2 ** retry_count)
@@ -110,7 +150,13 @@ async def run_analysis(
                 job = await db2.get(AnalysisJob, job_id)
                 retry_count = job.retry_count if job else settings.max_job_retries
 
-                if _is_retryable(failure_exc) and retry_count < settings.max_job_retries:
+                quota_exhausted = _is_quota_exhausted(failure_exc)
+
+                if (
+                    not quota_exhausted
+                    and _is_retryable(failure_exc)
+                    and retry_count < settings.max_job_retries
+                ):
                     backoff = _backoff_seconds(retry_count)
                     next_retry = datetime.now(timezone.utc) + timedelta(seconds=backoff)
                     bound.warning(
@@ -134,15 +180,20 @@ async def run_analysis(
                     )
                     await db2.commit()
                 else:
-                    bound.error("pipeline.final_failure", retries=retry_count)
+                    if quota_exhausted:
+                        error_message = _quota_exhausted_message(failure_exc)
+                        bound.error("pipeline.quota_exhausted", retries=retry_count)
+                    else:
+                        error_message = str(failure_exc)
+                        bound.error("pipeline.final_failure", retries=retry_count)
                     await db2.execute(
                         update(AnalysisJob)
                         .where(AnalysisJob.id == job_id)
                         .values(
                             status="failed",
-                            current_step=str(failure_exc)[:100],
+                            current_step=error_message[:100],
                             progress_pct=0,
-                            error_message=str(failure_exc),
+                            error_message=error_message,
                             claimed_at=None,
                             worker_id=None,
                             completed_at=datetime.now(timezone.utc),
